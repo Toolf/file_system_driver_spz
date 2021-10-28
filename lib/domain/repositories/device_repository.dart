@@ -9,30 +9,6 @@ class Block {
   Block(int blockSize) : data = Uint8List(blockSize);
 }
 
-// class DeviceData {
-//   final List<Block> blocks;
-
-//   DeviceData(int n) : blocks = List.generate(n, (i) => Block());
-
-//   int write(int position, Uint8List data) {
-//     int i = 0;
-//     while (i < min(data.length, blocks.length * BLOCK_SIZE - position)) {
-//       blocks[i].write(
-//         i == 0 ? position % BLOCK_SIZE : 0,
-//         data.sublist(
-//           i * BLOCK_SIZE,
-//           i == 0
-//               ? (i + 1) * BLOCK_SIZE - position % BLOCK_SIZE
-//               : (i + 1) * BLOCK_SIZE,
-//         ),
-//       );
-
-//       i += BLOCK_SIZE;
-//     }
-//     return i;
-//   }
-// }
-
 abstract class DeviceRepository {
   int get blockSize;
   int get blockCount;
