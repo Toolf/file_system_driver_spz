@@ -1,10 +1,10 @@
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:file_system_driver/domain/repositories/device_repository.dart';
-import 'package:file_system_driver/exceptions/exceptions.dart';
-import 'package:file_system_driver/exceptions/invalid_path.dart';
-import 'package:file_system_driver/utils/byte_formater.dart';
+import '../repositories/device_repository.dart';
+import '../../exceptions/exceptions.dart';
+import '../../exceptions/invalid_path.dart';
+import '../../utils/byte_formater.dart';
 
 import 'dentry.dart';
 import 'file_descriptor.dart';

@@ -1,8 +1,7 @@
 import 'dart:io';
-import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:file_system_driver/config.dart';
+import '../../config.dart';
 
 class Block {
   Uint8List data;
