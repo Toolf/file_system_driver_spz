@@ -601,38 +601,12 @@ class FileSystemImpl implements FileSystem {
     int blockIndex = file.blockMapAddress;
     Block blockMap = device.getBlock(blockIndex);
 
-    // int fileOffset = 0;
     while (blockNumber > (device.blockSize ~/ 2 - 1) * device.blockSize) {
       blockNumber -= device.blockSize ~/ 2 - 1;
       offset -= (device.blockSize ~/ 2 - 1) * device.blockSize;
-      // fileOffset += (device.blockSize ~/ 2 - 1) * device.blockSize;
-      // if (fileOffset - file.fileSize >
-      //     (device.blockSize ~/ 2 - 1) * device.blockSize) {
-      //   // clear all
-      //   for (int i = 0;
-      //       i < (device.blockSize ~/ 2 - 1) * device.blockSize;
-      //       i++) {
-      //     final address =
-      //         (blockMap.data[i * 2] << 8) + blockMap.data[i * 2 + 1];
-      //     _clearBlock(address);
-      //   }
-      // }
-
       blockIndex = _getNextBlockMapAddress(blockMap);
       blockMap = device.getBlock(blockIndex);
     }
-
-    // {
-    //   final numberOfStartBlock = offset ~/ device.blockSize;
-    //   final address = (blockMap.data[numberOfStartBlock * 2] << 8) +
-    //       blockMap.data[numberOfStartBlock * 2 + 1];
-    //   final block = device.getBlock(address);
-    //   final startByteForClear = file.fileSize % device.blockSize;
-    //   for (int i = startByteForClear; i < device.blockSize; i++) {
-    //     block.data[i] = 0;
-    //   }
-    //   device.write(address, block);
-    // }
 
     int writtenData = 0;
 
@@ -643,9 +617,6 @@ class FileSystemImpl implements FileSystem {
       for (int bId in blockMap) {
         if (device.blockSize > offset) {
           final b = device.getBlock(bId);
-          // if (writtenData >= file.fileSize) {
-          //   b.data = Uint8List(device.blockSize); // clear
-          // }
           int needToWrite =
               min(data.length - writtenData, device.blockSize - offset);
           for (int i = 0; i < needToWrite; i++) {

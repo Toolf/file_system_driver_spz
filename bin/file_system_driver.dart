@@ -128,31 +128,6 @@ void main(List<String> arguments) async {
     print("Used blocks: ${fs!.getUsedBlockAmount()}");
   }
 
-  // mkfs(10);
-  // mount();
-  // ls();
-  // create("test1");
-  // fstat(1);
-  // create("test2");
-  // ls();
-  // link("test1", "test11");
-  // truncate("test11", 200);
-  // open("test11");
-  // write(1, 4, Uint8List.fromList("01234567890123456789".codeUnits));
-  // read(1, 0, 30);
-  // truncate("test11", 5);
-  // read(1, 0, 30);
-  // truncate("test11", 10);
-  // write(1, 8, Uint8List.fromList("123456".codeUnits));
-  // read(1, 0, 30);
-  // ls();
-  // unlink("test11");
-  // unlink("test1");
-  // fstat(1);
-  // ls();
-  // close(1);
-  // return;
-
   var parser = ArgParser()
     ..addOption(
       "n",
