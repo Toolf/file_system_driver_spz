@@ -341,6 +341,8 @@ class FileSystemImpl implements FileSystem {
   }
 
   void _setBlockUnused(int blockId) {
+    if (blockId >= device.blockCount) return;
+
     if (blockId <= (126 * 8)) {
       final block = _getBlock(0);
       final mask = (1 << 7) >> (blockId % 8);
@@ -545,6 +547,10 @@ class FileSystemImpl implements FileSystem {
       throw FileNotFound();
     }
     final file = _getFileDescriptor(openedFiles[fd]!);
+    if (size + offset > file.fileSize) {
+      throw Exception("Out of file bounds");
+    }
+
     int blockAddress = file.blockMapAddress;
     final res = <int>[];
 
@@ -558,27 +564,21 @@ class FileSystemImpl implements FileSystem {
           final d = b.data.sublist(
             offset,
             min(
-              max(
-                file.fileSize - res.length - offset,
-                0,
-              ),
-              min(
-                device.blockSize,
-                size - res.length,
-              ),
+              device.blockSize,
+              offset + size - res.length,
             ),
           );
           res.addAll(d);
           offset = 0;
-          if (res.length == size || res.length == file.fileSize - offset) break;
+          if (res.length == size) break;
         } else {
           offset -= device.blockSize;
         }
       }
-      if (res.length == size || res.length == file.fileSize - offset) break;
+      if (res.length == size) break;
 
       blockAddress = _getNextBlockMapAddress(block);
-      bool nextBlockMapExists = blockAddress == 0;
+      bool nextBlockMapExists = blockAddress != 0;
       if (!nextBlockMapExists) break;
     }
 
@@ -609,8 +609,21 @@ class FileSystemImpl implements FileSystem {
       Block block = _getBlock(blockIndex);
       List<int> blockMap = _getBlockMap(block);
 
-      for (int bId in blockMap) {
+      bool isBlockMapUpdated = false;
+      for (int i = 0; i < blockMap.length; i++) {
+        int bId = blockMap[i];
+
         if (device.blockSize > offset) {
+          if (bId >= device.blockCount) {
+            bId = _getFreeBlock();
+            _clearBlock(bId);
+            _setBlockUsed(bId);
+            final address = int16bytes(bId);
+            block.data[2 * i] = address[0];
+            block.data[2 * i + 1] = address[1];
+            isBlockMapUpdated = true;
+          }
+
           final b = _getBlock(bId);
           int needToWrite =
               min(data.length - writtenData, device.blockSize - offset);
@@ -626,10 +639,13 @@ class FileSystemImpl implements FileSystem {
           offset -= device.blockSize;
         }
       }
+      if (isBlockMapUpdated) {
+        _writeBlock(blockIndex, block);
+      }
       if (writtenData == data.length) break;
 
       blockIndex = _getNextBlockMapAddress(block);
-      bool nextBlockMapExists = blockIndex == 0;
+      bool nextBlockMapExists = blockIndex != 0;
       if (!nextBlockMapExists) break;
     }
     if (writtenData != data.length) {
@@ -718,7 +734,6 @@ class FileSystemImpl implements FileSystem {
   void truncate(String name, int size) {
     /// Якщо truncate збільшує розмір файлу, то використати оптимізацію
     /// і не створювати блоки, вміст яких складається з нулів.
-    /// >> Тоді прийдеться при зменшенні розміру файлу затирати дані які були нулями.
     FileDescriptor file = _lookUp(name);
     if (size < file.fileSize) {
       int needToFreeBocks = (file.fileSize - size) ~/ device.blockSize;
@@ -734,19 +749,19 @@ class FileSystemImpl implements FileSystem {
 
         blockMapAddress = _getNextBlockMapAddress(blockMap);
       }
+
       int blockCount = (file.fileSize / device.blockSize).ceil();
       while (needToFreeBocks != 0) {
-        int i = blockCount % (device.blockSize ~/ 2 - 1) - 1;
+        int i = blockCount % (device.blockSize ~/ 2 - 1);
         for (; i >= 0 && needToFreeBocks > 0; i--) {
           final address = (blockMaps.last.data[i * 2] << 8) +
               blockMaps.last.data[i * 2 + 1];
-          _clearBlock(address);
           _setBlockUnused(address);
           needToFreeBocks--;
+          blockCount--;
         }
         if (i == -1) {
           blockMaps.removeLast();
-          _clearBlock(blockMapAddresses.last);
           _setBlockUnused(blockMapAddresses.removeLast());
         }
 
@@ -770,6 +785,7 @@ class FileSystemImpl implements FileSystem {
       int nextBlockMapAddress = file.blockMapAddress;
       if (nextBlockMapAddress == 0) {
         nextBlockMapAddress = _getFreeBlock();
+        _clearBlock(nextBlockMapAddress);
         _setBlockUsed(nextBlockMapAddress);
         file.blockMapAddress = nextBlockMapAddress;
         _updateDescriptor(file);
@@ -781,9 +797,8 @@ class FileSystemImpl implements FileSystem {
       } while (nextBlockMapAddress != 0);
 
       while (needToTakeBlocks != 0) {
-        final freeBlockAddress = _getFreeBlock();
-        _setBlockUsed(freeBlockAddress);
-        final address = int16bytes(freeBlockAddress);
+        // виходим за межі кількості блоків, це вказує на те що даний блок складається з нулів
+        final address = int16bytes(device.blockCount + 1);
         lastBlockMap.data[blockUsed % (device.blockSize ~/ 2 - 1) * 2] =
             address[0];
         lastBlockMap.data[blockUsed % (device.blockSize ~/ 2 - 1) * 2 + 1] =
