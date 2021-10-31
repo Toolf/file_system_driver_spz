@@ -120,7 +120,7 @@ void main(List<String> arguments) async {
     fs!.truncate(name, size);
   }
 
-  void getFreeBlockAmount() {
+  void getUsedBlockAmount() {
     if (fs == null) {
       throw Exception("Fs wasn't mounted");
     }
@@ -202,7 +202,7 @@ void main(List<String> arguments) async {
       'truncate',
     )
     ..addCommand(
-      'freeBlocks',
+      'usedBlocks',
     );
 
   while (true) {
@@ -269,8 +269,8 @@ void main(List<String> arguments) async {
           int size = int.parse(results["size"]);
           truncate(name, size);
           break;
-        case "freeBlocks":
-          getFreeBlockAmount();
+        case "usedBlocks":
+          getUsedBlockAmount();
           break;
         case "exit":
           exit(0);
