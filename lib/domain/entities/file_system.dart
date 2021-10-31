@@ -222,7 +222,7 @@ class FileSystemImpl implements FileSystem {
     bool isLastBlock;
     while (true) {
       blockId = address;
-      block = device.getBlock(blockId);
+      block = _getBlock(blockId);
       blockMap = _getBlockMap(block);
       if (blockMap.length == device.blockSize ~/ 2) {
         blockMap.removeLast();
@@ -234,7 +234,7 @@ class FileSystemImpl implements FileSystem {
             if (!dentries[i].valid) {
               firstFreeDentryId = i;
               firstFreeDentryBlockId = blockId;
-              firstFreeBlock = device.getBlock(blockId);
+              firstFreeBlock = _getBlock(blockId);
               break;
             }
           }
@@ -263,8 +263,8 @@ class FileSystemImpl implements FileSystem {
 
             firstFreeDentryId = 0;
             firstFreeDentryBlockId = newBlockIndex;
-            firstFreeBlock = device.getBlock(newBlockIndex);
-            device.write(blockId, block);
+            firstFreeBlock = _getBlock(newBlockIndex);
+            _writeBlock(blockId, block);
             found = true;
             break;
           }
@@ -277,17 +277,17 @@ class FileSystemImpl implements FileSystem {
         final addressBlockMap = int16bytes(newBlockMapIndex);
         block.data[device.blockSize - 2] = addressBlockMap[0];
         block.data[device.blockSize - 1] = addressBlockMap[1];
-        device.write(blockId, block);
+        _writeBlock(blockId, block);
 
         blockId = newBlockMapIndex;
-        block = device.getBlock(blockId);
+        block = _getBlock(blockId);
         block.data[0] = address[0];
         block.data[1] = address[1];
-        device.write(newBlockMapIndex, block);
+        _writeBlock(newBlockMapIndex, block);
 
         firstFreeDentryId = 0;
         firstFreeDentryBlockId = newBlockIndex;
-        firstFreeBlock = device.getBlock(newBlockIndex);
+        firstFreeBlock = _getBlock(newBlockIndex);
         break;
       }
     }
@@ -299,7 +299,7 @@ class FileSystemImpl implements FileSystem {
     for (int i = 0; i < name.length; i++) {
       firstFreeBlock.data[firstFreeDentryId * 16 + 3 + i] = name.codeUnits[i];
     }
-    device.write(firstFreeDentryBlockId, firstFreeBlock);
+    _writeBlock(firstFreeDentryBlockId, firstFreeBlock);
 
     final updatedFileRefs = FileDescriptor(
       id: file.id,
@@ -321,43 +321,43 @@ class FileSystemImpl implements FileSystem {
   }
 
   void _clearBlock(int blockId) {
-    device.write(blockId, Block(device.blockSize));
+    _writeBlock(blockId, Block(device.blockSize));
   }
 
   void _setBlockUsed(int blockId) {
     if (blockId <= (126 * 8)) {
-      final block = device.getBlock(0);
+      final block = _getBlock(0);
       final mask = (1 << 7) >> (blockId % 8);
       final byteIndex = blockId ~/ 8;
       block.data[byteIndex + 2] |= mask;
-      device.write(0, block);
+      _writeBlock(0, block);
     } else {
-      final block = device.getBlock(1);
+      final block = _getBlock(1);
       final mask = (1 << 7) >> (blockId % 8);
       final byteIndex = blockId ~/ 8;
       block.data[byteIndex] |= mask;
-      device.write(1, block);
+      _writeBlock(1, block);
     }
   }
 
   void _setBlockUnused(int blockId) {
     if (blockId <= (126 * 8)) {
-      final block = device.getBlock(0);
+      final block = _getBlock(0);
       final mask = (1 << 7) >> (blockId % 8);
       final byteIndex = blockId ~/ 8;
       block.data[byteIndex + 2] &= ~mask;
-      device.write(0, block);
+      _writeBlock(0, block);
     } else {
-      final block = device.getBlock(1);
+      final block = _getBlock(1);
       final mask = (1 << 7) >> (blockId % 8);
       final byteIndex = blockId ~/ 8;
       block.data[byteIndex] &= ~mask;
-      device.write(1, block);
+      _writeBlock(1, block);
     }
   }
 
   int _getFreeBlock() {
-    final block1 = device.getBlock(0);
+    final block1 = _getBlock(0);
     Uint8List data = block1.data.sublist(2);
     for (int i = 0; i < data.length; i++) {
       if (data[i] != 255) {
@@ -373,7 +373,7 @@ class FileSystemImpl implements FileSystem {
         }
       }
     }
-    final block2 = device.getBlock(1);
+    final block2 = _getBlock(1);
     data = block1.data;
     for (int i = 0; i < data.length; i++) {
       if (data[i] != 255) {
@@ -416,7 +416,7 @@ class FileSystemImpl implements FileSystem {
 
   void _updateDescriptor(FileDescriptor fd) {
     final blockId = ((fd.id * 8) ~/ device.blockSize) + 2;
-    final block = device.getBlock(blockId);
+    final block = _getBlock(blockId);
     final indexInBlock = (fd.id * 8) % device.blockSize;
     //[FileType][Refs][FileSize][blockMapAddress]
     block.data[indexInBlock] = fd.type.index; // FileType
@@ -427,7 +427,7 @@ class FileSystemImpl implements FileSystem {
     final blockMapData = int16bytes(fd.blockMapAddress); // BlockMap
     block.data[indexInBlock + 4] = blockMapData[0];
     block.data[indexInBlock + 5] = blockMapData[1];
-    device.write(blockId, block);
+    _writeBlock(blockId, block);
   }
 
   @override
@@ -440,7 +440,7 @@ class FileSystemImpl implements FileSystem {
     final N = (nData[0] << 8) + nData[1];
     for (int i = 0; i < N; i += device.blockSize) {
       final index = i ~/ device.blockSize;
-      final block = device.getBlock(index + 2);
+      final block = _getBlock(index + 2);
       for (int k = 0; k < device.blockSize ~/ 8; k++) {
         if (k + (index * device.blockSize) ~/ 8 >= N) {
           throw Exception("Not found unused file descriptor");
@@ -494,7 +494,7 @@ class FileSystemImpl implements FileSystem {
   }
 
   List<Dentry> _readDentryFromBlock(int blockId) {
-    final block = device.getBlock(blockId);
+    final block = _getBlock(blockId);
     final dentries = <Dentry>[];
     for (int i = 0; i < block.data.length ~/ 16; i++) {
       final valid = (block.data[i * 16]) == 1;
@@ -523,7 +523,7 @@ class FileSystemImpl implements FileSystem {
 
     bool isLastBlock;
     do {
-      final Block block = device.getBlock(address);
+      final Block block = _getBlock(address);
       List<int> blockMap = _getBlockMap(block);
       if (blockMap.length == device.blockSize ~/ 2) {
         blockMap.removeLast();
@@ -549,12 +549,12 @@ class FileSystemImpl implements FileSystem {
     final res = <int>[];
 
     while (true) {
-      Block block = device.getBlock(blockAddress);
+      Block block = _getBlock(blockAddress);
       List<int> blockMap = _getBlockMap(block);
 
       for (int bId in blockMap) {
         if (device.blockSize > offset) {
-          final b = device.getBlock(bId);
+          final b = _getBlock(bId);
           final d = b.data.sublist(
             offset,
             min(
@@ -594,30 +594,30 @@ class FileSystemImpl implements FileSystem {
 
     int blockNumber = offset ~/ device.blockSize;
     int blockIndex = file.blockMapAddress;
-    Block blockMap = device.getBlock(blockIndex);
+    Block blockMap = _getBlock(blockIndex);
 
     while (blockNumber > (device.blockSize ~/ 2 - 1) * device.blockSize) {
       blockNumber -= device.blockSize ~/ 2 - 1;
       offset -= (device.blockSize ~/ 2 - 1) * device.blockSize;
       blockIndex = _getNextBlockMapAddress(blockMap);
-      blockMap = device.getBlock(blockIndex);
+      blockMap = _getBlock(blockIndex);
     }
 
     int writtenData = 0;
 
     while (true) {
-      Block block = device.getBlock(blockIndex);
+      Block block = _getBlock(blockIndex);
       List<int> blockMap = _getBlockMap(block);
 
       for (int bId in blockMap) {
         if (device.blockSize > offset) {
-          final b = device.getBlock(bId);
+          final b = _getBlock(bId);
           int needToWrite =
               min(data.length - writtenData, device.blockSize - offset);
           for (int i = 0; i < needToWrite; i++) {
             b.data[i + offset] = data[i];
           }
-          device.write(bId, b);
+          _writeBlock(bId, b);
 
           offset = 0;
           writtenData += needToWrite;
@@ -652,10 +652,10 @@ class FileSystemImpl implements FileSystem {
       if (dentries[i].name == name) {
         int blockMapNumber =
             i ~/ (device.blockSize ~/ 16 * (device.blockSize ~/ 2 - 1));
-        Block blockMap = device.getBlock(d.blockMapAddress);
+        Block blockMap = _getBlock(d.blockMapAddress);
         while (blockMapNumber != 0) {
           final address = _getNextBlockMapAddress(blockMap);
-          blockMap = device.getBlock(address);
+          blockMap = _getBlock(address);
           blockMapNumber--;
         }
 
@@ -663,14 +663,14 @@ class FileSystemImpl implements FileSystem {
             (i % (device.blockSize ~/ 2 - 1)) ~/ (device.blockSize ~/ 16);
         final blockAddress = (blockMap.data[blockNumber * 2] << 8) +
             blockMap.data[blockNumber * 2 + 1];
-        Block block = device.getBlock(blockAddress);
+        Block block = _getBlock(blockAddress);
         for (int k = 0; k < device.blockSize ~/ 16; k++) {
           final nameData = block.data.sublist(k * 16 + 3, (k + 1) * 16);
           String name =
               String.fromCharCodes(nameData.sublist(0, nameData.indexOf(0)));
           if (name == dentries[i].name) {
             block.data[k * 16] = 0; // set invalid
-            device.write(blockAddress, block);
+            _writeBlock(blockAddress, block);
 
             final fileDescriptorId =
                 (block.data[k * 16 + 1] << 8) + block.data[k * 16 + 2];
@@ -693,7 +693,7 @@ class FileSystemImpl implements FileSystem {
     print("Free file ${file.id}");
     int blockMapAddress = file.blockMapAddress;
     while (blockMapAddress != 0) {
-      Block blockMap = device.getBlock(blockMapAddress);
+      Block blockMap = _getBlock(blockMapAddress);
       bool isFree = false;
       for (int blockIndex = 0;
           blockIndex < device.blockSize ~/ 2 - 1;
@@ -727,7 +727,7 @@ class FileSystemImpl implements FileSystem {
       final blockMapAddresses = <int>[];
       int blockMapAddress = file.blockMapAddress;
       while (blockMapAddress != 0) {
-        Block blockMap = device.getBlock(blockMapAddress);
+        Block blockMap = _getBlock(blockMapAddress);
 
         blockMaps.add(blockMap);
         blockMapAddresses.add(blockMapAddress);
@@ -755,7 +755,7 @@ class FileSystemImpl implements FileSystem {
           final blockMapAddress = blockMapAddresses.last;
           blockMap.data[device.blockSize - 2] = 0;
           blockMap.data[device.blockSize - 1] = 0;
-          device.write(blockMapAddress, blockMap);
+          _writeBlock(blockMapAddress, blockMap);
         }
       }
 
@@ -776,7 +776,7 @@ class FileSystemImpl implements FileSystem {
       }
       do {
         lastBlockMapAddress = nextBlockMapAddress;
-        lastBlockMap = device.getBlock(lastBlockMapAddress);
+        lastBlockMap = _getBlock(lastBlockMapAddress);
         nextBlockMapAddress = _getNextBlockMapAddress(lastBlockMap);
       } while (nextBlockMapAddress != 0);
 
@@ -797,14 +797,14 @@ class FileSystemImpl implements FileSystem {
           lastBlockMap.data[device.blockSize - 2] = nextBockMapAddress[0];
           lastBlockMap.data[device.blockSize - 1] = nextBockMapAddress[1];
 
-          device.write(lastBlockMapAddress, lastBlockMap);
+          _writeBlock(lastBlockMapAddress, lastBlockMap);
 
           lastBlockMapAddress = _getNextBlockMapAddress(lastBlockMap);
-          lastBlockMap = device.getBlock(lastBlockMapAddress);
+          lastBlockMap = _getBlock(lastBlockMapAddress);
         }
       }
       if (blockUsed % (device.blockSize ~/ 2 - 1) != 0) {
-        device.write(lastBlockMapAddress, lastBlockMap);
+        _writeBlock(lastBlockMapAddress, lastBlockMap);
       }
       file.fileSize = size;
       _updateDescriptor(file);
@@ -815,14 +815,14 @@ class FileSystemImpl implements FileSystem {
     int count = 0;
     Block block;
 
-    block = device.getBlock(0);
+    block = _getBlock(0);
     for (int byteIndex = 2; byteIndex < device.blockSize; byteIndex++) {
       for (int mask = (1 << 7); mask != 0; mask >>= 1) {
         bool isUsed = (block.data[byteIndex] & mask) != 0;
         count += isUsed ? 1 : 0;
       }
     }
-    block = device.getBlock(1);
+    block = _getBlock(1);
     for (int byteIndex = 0; byteIndex < device.blockSize; byteIndex++) {
       for (int mask = (1 << 7); mask != 0; mask >>= 1) {
         bool isUsed = (block.data[byteIndex] & mask) != 0;
@@ -830,5 +830,16 @@ class FileSystemImpl implements FileSystem {
       }
     }
     return count;
+  }
+
+  Block _getBlock(int blockIndex) {
+    if (blockIndex >= device.blockCount) {
+      return Block(device.blockSize); // Блок заповнений нулями
+    }
+    return device.getBlock(blockIndex);
+  }
+
+  void _writeBlock(int blockIndex, Block block) {
+    device.write(blockIndex, block);
   }
 }
