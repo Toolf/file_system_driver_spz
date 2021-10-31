@@ -20,8 +20,10 @@ abstract class FileSystem {
       throw UnimplementedError(); // Створює екземпляр файлової системи
   void unmount();
   FileDescriptor getDescriptor(int descriptorId);
+  FileDescriptor lookUp(String path);
   List<Dentry> readDirectory(FileDescriptor directory);
-  void create(String path);
+  FileDescriptor createFile(String path);
+  FileDescriptor createDirectory(String path);
   int open(String path);
   void close(int fd);
   Uint8List read(int fd, int offset, int size);
@@ -29,19 +31,20 @@ abstract class FileSystem {
   void link(String name1, String name2);
   void unlink(String name);
   void truncate(String name, int size);
+  bool isDirExists(String path);
 
   int getUsedBlockAmount();
 }
 
 class FileSystemImpl implements FileSystem {
   /// Формат файлової системи для блоковго пристрою.
-  /// [N][BitMap][FileDescriptros]
+  /// [N][BitMap][FileDescriptors]
   /// N : 2 байти
   ///   max(32768)
   /// BitMap : 254 байт.
   ///   Максимальний розмір девайсу 260096 байт.
   ///   Кожен біт визначає чи блок занятий чи вільний.
-  /// FileDescriptros : N файлових дискрипторів.
+  /// FileDescriptors : N файлових дискрипторів.
   ///   [FileDescriptor]...[FileDescriptor]
   /// FileDescriptor : 8 байт
   ///   [FileType][Refs][FileSize][blockMapAddress][2 байти зарезервовані на майбутнє]
@@ -163,15 +166,22 @@ class FileSystemImpl implements FileSystem {
     }
   }
 
+  String _getFilenameByPath(String name) {
+    return name.substring(name.lastIndexOf("/") + 1);
+  }
+
+  String _getDirectoryByPath(String name) {
+    final dir = name.substring(0, name.lastIndexOf("/"));
+    if (dir.isEmpty) return "/";
+    return dir;
+  }
+
   @override
-  FileDescriptor create(String path) {
-    final dirs = path.split("/");
-    String pathToDir = dirs.sublist(0, dirs.length - 1).join("/");
-    if (pathToDir.isEmpty) {
-      pathToDir = "/";
-    }
-    final fileName = dirs[dirs.length - 1];
-    FileDescriptor dirDescriptor = _lookUp(pathToDir);
+  FileDescriptor createFile(String path) {
+    assert(path.contains("/"));
+    String pathToDir = _getDirectoryByPath(path);
+    final fileName = _getFilenameByPath(path);
+    FileDescriptor dirDescriptor = lookUp(pathToDir);
     if (dirDescriptor.type != FileType.directory) {
       throw DirectoryNotFound();
     }
@@ -391,20 +401,25 @@ class FileSystemImpl implements FileSystem {
     throw Exception("Free block not found");
   }
 
-  FileDescriptor _lookUp(String path) {
+  @override
+  FileDescriptor lookUp(String path) {
     FileDescriptor directory = root;
     if (path == "/") {
       return directory;
     }
-    final dentries = readDirectory(directory);
+
     final dirs = path.split("/");
-    int i = 0;
+    int i = 1;
     while (i != dirs.length) {
+      final dentries = readDirectory(directory);
       bool dirFound = false;
       for (var d in dentries) {
         if (d.name == dirs[i]) {
           i++;
           directory = getDescriptor(d.fileDescriptorId);
+          if (directory.type != FileType.directory) {
+            throw InvalidPath();
+          }
           dirFound = true;
           break;
         }
@@ -474,7 +489,7 @@ class FileSystemImpl implements FileSystem {
 
   @override
   int open(String path) {
-    final f = _lookUp(path);
+    final f = lookUp(path);
     if (f.type != FileType.regular) {
       throw Exception("Path not to regular file");
     }
@@ -655,14 +670,14 @@ class FileSystemImpl implements FileSystem {
 
   @override
   void link(String name1, String name2) {
-    final d = _lookUp("/");
-    final file = _lookUp(name1);
+    final d = lookUp(_getDirectoryByPath(name1));
+    final file = lookUp(name1);
     _addLinkToDirectory(d, name2, file);
   }
 
   @override
   void unlink(String name) {
-    final d = _lookUp("/");
+    final d = lookUp("/");
     final dentries = readDirectory(d);
     for (int i = 0; i < dentries.length; i++) {
       if (dentries[i].name == name) {
@@ -734,7 +749,7 @@ class FileSystemImpl implements FileSystem {
   void truncate(String name, int size) {
     /// Якщо truncate збільшує розмір файлу, то використати оптимізацію
     /// і не створювати блоки, вміст яких складається з нулів.
-    FileDescriptor file = _lookUp(name);
+    FileDescriptor file = lookUp(name);
     if (size < file.fileSize) {
       int needToFreeBocks = (file.fileSize - size) ~/ device.blockSize;
 
@@ -856,5 +871,45 @@ class FileSystemImpl implements FileSystem {
 
   void _writeBlock(int blockIndex, Block block) {
     device.write(blockIndex, block);
+  }
+
+  @override
+  FileDescriptor createDirectory(String path) {
+    String pathToDir = _getDirectoryByPath(path);
+    final dirName = _getFilenameByPath(path);
+    FileDescriptor dirDescriptor = lookUp(pathToDir);
+    if (dirDescriptor.type != FileType.directory) {
+      throw DirectoryNotFound();
+    }
+
+    final descriptor = _getUnusedDescriptor();
+    final newDirDescriptor = FileDescriptor(
+      id: descriptor.id,
+      type: FileType.directory,
+      refs: 1,
+      fileSize: 0,
+      blockMapAddress: 0,
+    );
+
+    _addLinkToDirectory(dirDescriptor, dirName, newDirDescriptor);
+    _updateDescriptor(newDirDescriptor);
+
+    _addLinkToDirectory(newDirDescriptor, ".", newDirDescriptor);
+    _addLinkToDirectory(newDirDescriptor, "..", dirDescriptor);
+
+    return newDirDescriptor;
+  }
+
+  @override
+  bool isDirExists(String path) {
+    try {
+      final fd = lookUp(path);
+      if (fd.type == FileType.directory) {
+        return true;
+      }
+      return false;
+    } on InvalidPath {
+      return false;
+    }
   }
 }

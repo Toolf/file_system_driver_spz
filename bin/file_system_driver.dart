@@ -9,6 +9,11 @@ import 'package:file_system_driver/domain/entities/file_system.dart';
 void main(List<String> arguments) async {
   String filePath = "information_device.txt";
   FileSystem? fs;
+  String cwd = "";
+
+  String _getAbsolutePath(String path) {
+    return path[0] == "" ? path : cwd + "/" + path;
+  }
 
   void mkfs(int n) async {
     FileSystemImpl.mkfs(filePath, n);
@@ -44,7 +49,7 @@ void main(List<String> arguments) async {
     if (fs == null) {
       throw Exception("Fs wasn't mounted");
     }
-    final dentries = fs!.readDirectory(fs!.root);
+    final dentries = fs!.readDirectory(fs!.lookUp(cwd));
     print("Dir:");
     for (var d in dentries) {
       print(
@@ -59,14 +64,14 @@ void main(List<String> arguments) async {
     if (fs == null) {
       throw Exception("Fs wasn't mounted");
     }
-    fs!.create("/" + name);
+    fs!.createFile(_getAbsolutePath(name));
   }
 
   int open(String name) {
     if (fs == null) {
       throw Exception("Fs wasn't mounted");
     }
-    final fd = fs!.open(name);
+    final fd = fs!.open(_getAbsolutePath(name));
     print("Fd: $fd");
     return fd;
   }
@@ -101,7 +106,7 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
-    fs!.link(name1, name2);
+    fs!.link(_getAbsolutePath(name1), _getAbsolutePath(name2));
   }
 
   void unlink(String name) {
@@ -109,7 +114,7 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
-    fs!.unlink(name);
+    fs!.unlink(_getAbsolutePath(name));
   }
 
   void truncate(String name, int size) {
@@ -117,7 +122,7 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
-    fs!.truncate(name, size);
+    fs!.truncate(_getAbsolutePath(name), size);
   }
 
   void getUsedBlockAmount() {
@@ -127,6 +132,35 @@ void main(List<String> arguments) async {
 
     print("Used blocks: ${fs!.getUsedBlockAmount()}");
   }
+
+  void mkdir(String path) {
+    if (fs == null) {
+      throw Exception("Fs wasn't mounted");
+    }
+
+    fs!.createDirectory(_getAbsolutePath(path));
+  }
+
+  void cd(String path) {
+    if (fs == null) {
+      throw Exception("Fs wasn't mounted");
+    }
+
+    String newCwd = _getAbsolutePath(path);
+
+    if (fs!.isDirExists(newCwd)) {
+      cwd = newCwd;
+    } else {
+      print("Directory not found");
+    }
+  }
+
+  // mount();
+  // ls();
+  // cd("tt");
+  // ls();
+  // cd(".");
+  // return;
 
   var parser = ArgParser()
     ..addOption(
@@ -203,6 +237,12 @@ void main(List<String> arguments) async {
     )
     ..addCommand(
       'usedBlocks',
+    )
+    ..addCommand(
+      'mkdir',
+    )
+    ..addCommand(
+      'cd',
     );
 
   while (true) {
@@ -271,6 +311,12 @@ void main(List<String> arguments) async {
           break;
         case "usedBlocks":
           getUsedBlockAmount();
+          break;
+        case "mkdir":
+          mkdir(results["path"]);
+          break;
+        case "cd":
+          cd(results["path"]);
           break;
         case "exit":
           exit(0);
