@@ -4,7 +4,7 @@
 
 Формат файлової системи для блоковго пристрою.
 
-`[N][bitmap][FileDescriptros]`
+`[N][bitmap][FileDescriptors]`
 
 **N** : 2 байти
 
@@ -15,7 +15,7 @@
 - Максимальний розмір девайсу 260096 байт.
 - Кожен біт визначає чи блок занятий чи вільний.
 
-**FileDescriptros** : N файлових дискрипторів.
+**FileDescriptors** : N файлових дискрипторів.
 
 `[FileDescriptor]...[FileDescriptor]`
 
