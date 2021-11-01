@@ -23,6 +23,7 @@ abstract class FileSystem {
   FileDescriptor lookUp(String path);
   List<Dentry> readDirectory(FileDescriptor directory);
   FileDescriptor createFile(String path);
+  FileDescriptor createSymlink(String path, String str);
   FileDescriptor createDirectory(String path);
   void removeDirectory(String path);
   int open(String path);
@@ -54,6 +55,7 @@ class FileSystemImpl implements FileSystem {
   ///   0 - дискриптор не використовується
   ///   1 - файл
   ///   2 - директорія
+  ///   3 - символічне посилання
   /// Refs : 1 байти (max = 255), цього має з запасом хватити.
   /// FileSize : 2 байти.
   ///   Максимальний розмір файлу 65536 байт.
@@ -74,6 +76,8 @@ class FileSystemImpl implements FileSystem {
   ///   Ідентифікатор файлового дискриптору
   /// name : 13 байт
   ///   Назва файлу
+
+  static const MAX_SYMLINK_COUNT = 2;
 
   @override
   int fd;
@@ -397,26 +401,51 @@ class FileSystemImpl implements FileSystem {
       return directory;
     }
 
+    int symlinkCount = 0;
+
     path = path[path.length - 1] == "/"
         ? path.substring(0, path.length - 1)
         : path;
     final dirs = path.split("/");
     int i = 1;
     while (i != dirs.length) {
+      if (directory.type != FileType.directory) {
+        throw InvalidPath();
+      }
       final dentries = readDirectory(directory);
-      bool dirFound = false;
+      bool nextFound = false;
       for (var d in dentries) {
         if (d.name == dirs[i]) {
           i++;
-          directory = getDescriptor(d.fileDescriptorId);
-          if (directory.type != FileType.directory) {
-            throw InvalidPath();
+          final nextDirectory = getDescriptor(d.fileDescriptorId);
+          if (nextDirectory.type == FileType.symlink) {
+            symlinkCount++;
+
+            if (symlinkCount > MAX_SYMLINK_COUNT) {
+              throw Exception("Exceeded max symlink count");
+            }
+
+            final p = String.fromCharCodes(_read(
+              nextDirectory,
+              0,
+              nextDirectory.fileSize,
+            ));
+            if (p[0] == "/") {
+              // absilute path
+              dirs.insertAll(i, p.split("/").sublist(0));
+              directory = root;
+            } else {
+              dirs.insertAll(i, p.split("/"));
+            }
+          } else {
+            directory = nextDirectory;
           }
-          dirFound = true;
+
+          nextFound = true;
           break;
         }
       }
-      if (!dirFound) {
+      if (!nextFound) {
         throw InvalidPath();
       }
     }
@@ -554,8 +583,17 @@ class FileSystemImpl implements FileSystem {
       throw FileNotFound();
     }
     final file = _getFileDescriptor(openedFiles[fd]!);
+    return _read(file, offset, size);
+  }
+
+  Uint8List _read(FileDescriptor file, int offset, int size) {
     if (size + offset > file.fileSize) {
       throw Exception("Out of file bounds");
+    }
+
+    if (file.type == FileType.symlink) {
+      final blockIndex = file.blockMapAddress;
+      return _getBlock(blockIndex).data.sublist(offset, size);
     }
 
     int blockAddress = file.blockMapAddress;
@@ -597,8 +635,12 @@ class FileSystemImpl implements FileSystem {
     if (!openedFiles.containsKey(fd)) {
       throw FileNotFound();
     }
-    final file = _getFileDescriptor(openedFiles[fd]!);
 
+    final file = _getFileDescriptor(openedFiles[fd]!);
+    _write(file, offset, data);
+  }
+
+  void _write(FileDescriptor file, int offset, Uint8List data) {
     int blockNumber = offset ~/ device.blockSize;
     int blockIndex = file.blockMapAddress;
     Block blockMap = _getBlock(blockIndex);
@@ -844,6 +886,7 @@ class FileSystemImpl implements FileSystem {
     }
   }
 
+  @override
   int getUsedBlockAmount() {
     int count = 0;
     Block block;
@@ -930,5 +973,37 @@ class FileSystemImpl implements FileSystem {
     _unlink(path + "/.");
     _unlink(path + "/..");
     _unlink(path);
+  }
+
+  @override
+  FileDescriptor createSymlink(String path, String str) {
+    String pathToDir = _getDirectoryByPath(path);
+    final fileName = _getFilenameByPath(path);
+    FileDescriptor dirDescriptor = lookUp(pathToDir);
+    if (dirDescriptor.type != FileType.directory) {
+      throw DirectoryNotFound();
+    }
+
+    final descriptor = _getUnusedDescriptor();
+    final blockIndex = _getFreeBlock();
+    _setBlockUsed(blockIndex);
+
+    final fileDescriptor = FileDescriptor(
+      id: descriptor.id,
+      type: FileType.symlink,
+      refs: 0,
+      fileSize: str.length,
+      blockMapAddress: blockIndex,
+    );
+
+    _addLinkToDirectory(dirDescriptor, fileName, fileDescriptor);
+    Block block = Block(device.blockSize);
+    for (int i = 0; i < str.length; i++) {
+      block.data[i] = str.codeUnits[i];
+    }
+
+    _writeBlock(blockIndex, block);
+
+    return fileDescriptor;
   }
 }

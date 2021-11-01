@@ -181,6 +181,14 @@ void main(List<String> arguments) async {
     }
   }
 
+  void symlink(String str, String path) {
+    if (fs == null) {
+      throw Exception("Fs wasn't mounted");
+    }
+
+    fs!.createSymlink(_getAbsolutePath(path), str);
+  }
+
   var parser = ArgParser()
     ..addOption(
       "n",
@@ -211,6 +219,9 @@ void main(List<String> arguments) async {
     )
     ..addOption(
       "name2",
+    )
+    ..addOption(
+      "str",
     )
     ..addCommand(
       'mkfs',
@@ -268,6 +279,9 @@ void main(List<String> arguments) async {
     )
     ..addCommand(
       'pwd',
+    )
+    ..addCommand(
+      'symlink',
     );
 
   while (true) {
@@ -348,6 +362,9 @@ void main(List<String> arguments) async {
           break;
         case "rmdir":
           rmdir(results["path"]);
+          break;
+        case "symlink":
+          symlink(results["str"], results["path"]);
           break;
         case "exit":
           exit(0);

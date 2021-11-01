@@ -2,6 +2,7 @@ enum FileType {
   unused, // 0
   regular, // 1
   directory, // 2
+  symlink, // 3
 }
 
 extension FileTypeExtention on FileType {
@@ -11,6 +12,8 @@ extension FileTypeExtention on FileType {
         return "directory";
       case FileType.regular:
         return "regular";
+      case FileType.symlink:
+        return "symlink";
       default:
         return "unknown";
     }
