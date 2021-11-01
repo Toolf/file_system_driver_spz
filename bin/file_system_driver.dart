@@ -9,10 +9,14 @@ import 'package:file_system_driver/domain/entities/file_system.dart';
 void main(List<String> arguments) async {
   String filePath = "information_device.txt";
   FileSystem? fs;
-  String cwd = "";
+  String cwd = "/";
+
+  String _simplifyPath(String path) {
+    return path.replaceAll("../", "").replaceAll("./", "");
+  }
 
   String _getAbsolutePath(String path) {
-    return path[0] == "" ? path : cwd + "/" + path;
+    return path[0] == "/" ? path : _simplifyPath(cwd + path);
   }
 
   void mkfs(int n) async {
@@ -141,6 +145,18 @@ void main(List<String> arguments) async {
     fs!.createDirectory(_getAbsolutePath(path));
   }
 
+  void rmdir(String path) {
+    if (fs == null) {
+      throw Exception("Fs wasn't mounted");
+    }
+
+    fs!.removeDirectory(_getAbsolutePath(path));
+  }
+
+  void pwd() {
+    print(cwd);
+  }
+
   void cd(String path) {
     if (fs == null) {
       throw Exception("Fs wasn't mounted");
@@ -149,18 +165,21 @@ void main(List<String> arguments) async {
     String newCwd = _getAbsolutePath(path);
 
     if (fs!.isDirExists(newCwd)) {
-      cwd = newCwd;
+      if (path == "..") {
+        cwd = cwd.substring(
+            0, cwd.substring(0, cwd.length - 1).lastIndexOf("/") + 1);
+        if (cwd.isEmpty) {
+          cwd = "/";
+        }
+      } else if (path == ".") {
+        return;
+      } else {
+        cwd = newCwd + "/";
+      }
     } else {
       print("Directory not found");
     }
   }
-
-  // mount();
-  // ls();
-  // cd("tt");
-  // ls();
-  // cd(".");
-  // return;
 
   var parser = ArgParser()
     ..addOption(
@@ -242,12 +261,18 @@ void main(List<String> arguments) async {
       'mkdir',
     )
     ..addCommand(
+      'rmdir',
+    )
+    ..addCommand(
       'cd',
+    )
+    ..addCommand(
+      'pwd',
     );
 
   while (true) {
     try {
-      stdout.write(">> ");
+      stdout.write("$cwd >> ");
       var args = stdin
           .readLineSync(
             encoding: Encoding.getByName('utf-8')!,
@@ -258,6 +283,9 @@ void main(List<String> arguments) async {
       if (results.command == null) continue;
       final command = results.command as ArgResults;
       switch (results.command!.name) {
+        case "pwd":
+          pwd();
+          break;
         case "mkfs":
           mkfs(int.parse(results["n"]));
           break;
@@ -317,6 +345,9 @@ void main(List<String> arguments) async {
           break;
         case "cd":
           cd(results["path"]);
+          break;
+        case "rmdir":
+          rmdir(results["path"]);
           break;
         case "exit":
           exit(0);

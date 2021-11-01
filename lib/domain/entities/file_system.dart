@@ -24,6 +24,7 @@ abstract class FileSystem {
   List<Dentry> readDirectory(FileDescriptor directory);
   FileDescriptor createFile(String path);
   FileDescriptor createDirectory(String path);
+  void removeDirectory(String path);
   int open(String path);
   void close(int fd);
   Uint8List read(int fd, int offset, int size);
@@ -190,13 +191,12 @@ class FileSystemImpl implements FileSystem {
     final fileDescriptor = FileDescriptor(
       id: descriptor.id,
       type: FileType.regular,
-      refs: 1,
+      refs: 0,
       fileSize: 0,
       blockMapAddress: 0,
     );
 
     _addLinkToDirectory(dirDescriptor, fileName, fileDescriptor);
-    _updateDescriptor(fileDescriptor);
 
     return fileDescriptor;
   }
@@ -306,28 +306,17 @@ class FileSystemImpl implements FileSystem {
     final fileDescriptorIdData = int16bytes(file.id);
     firstFreeBlock.data[firstFreeDentryId * 16 + 1] = fileDescriptorIdData[0];
     firstFreeBlock.data[firstFreeDentryId * 16 + 2] = fileDescriptorIdData[1];
-    for (int i = 0; i < name.length; i++) {
-      firstFreeBlock.data[firstFreeDentryId * 16 + 3 + i] = name.codeUnits[i];
+    for (int i = 0; i < 13; i++) {
+      firstFreeBlock.data[firstFreeDentryId * 16 + 3 + i] =
+          i < name.length ? name.codeUnits[i] : 0;
     }
     _writeBlock(firstFreeDentryBlockId, firstFreeBlock);
 
-    final updatedFileRefs = FileDescriptor(
-      id: file.id,
-      type: file.type,
-      refs: file.refs + 1,
-      fileSize: file.fileSize,
-      blockMapAddress: file.blockMapAddress,
-    );
-    _updateDescriptor(updatedFileRefs);
+    file.refs++;
+    _updateDescriptor(file);
 
-    final updatedDirSize = FileDescriptor(
-      id: dir.id,
-      type: dir.type,
-      refs: dir.refs,
-      fileSize: dir.fileSize + 16, // 16 - розмір дирикторного запису
-      blockMapAddress: dir.blockMapAddress,
-    );
-    _updateDescriptor(updatedDirSize);
+    dir.fileSize += 16; // 16 - розмір дирикторного запису
+    _updateDescriptor(dir);
   }
 
   void _clearBlock(int blockId) {
@@ -386,13 +375,13 @@ class FileSystemImpl implements FileSystem {
       }
     }
     final block2 = _getBlock(1);
-    data = block1.data;
+    data = block2.data;
     for (int i = 0; i < data.length; i++) {
       if (data[i] != 255) {
         int mask = 1 << 7;
         for (int k = 0; k < data.length; k++) {
           if (mask & data[i] == 0) {
-            return i * 8 + k;
+            return 255 + i * 8 + k;
           }
           mask >>= 1;
         }
@@ -408,6 +397,9 @@ class FileSystemImpl implements FileSystem {
       return directory;
     }
 
+    path = path[path.length - 1] == "/"
+        ? path.substring(0, path.length - 1)
+        : path;
     final dirs = path.split("/");
     int i = 1;
     while (i != dirs.length) {
@@ -670,14 +662,26 @@ class FileSystemImpl implements FileSystem {
 
   @override
   void link(String name1, String name2) {
-    final d = lookUp(_getDirectoryByPath(name1));
     final file = lookUp(name1);
-    _addLinkToDirectory(d, name2, file);
+    if (file.type == FileType.directory) {
+      throw Exception("Can't create link to directory");
+    }
+
+    final d = lookUp(_getDirectoryByPath(name2));
+    _addLinkToDirectory(d, _getFilenameByPath(name2), file);
   }
 
   @override
-  void unlink(String name) {
-    final d = lookUp("/");
+  void unlink(String path) {
+    // can't unlink directory
+    final file = lookUp(path);
+    if (file.type == FileType.directory) return;
+    return _unlink(path);
+  }
+
+  void _unlink(String path) {
+    final name = _getFilenameByPath(path);
+    final d = lookUp(_getDirectoryByPath(path));
     final dentries = readDirectory(d);
     for (int i = 0; i < dentries.length; i++) {
       if (dentries[i].name == name) {
@@ -725,7 +729,6 @@ class FileSystemImpl implements FileSystem {
     int blockMapAddress = file.blockMapAddress;
     while (blockMapAddress != 0) {
       Block blockMap = _getBlock(blockMapAddress);
-      bool isFree = false;
       for (int blockIndex = 0;
           blockIndex < device.blockSize ~/ 2 - 1;
           blockIndex++) {
@@ -886,13 +889,12 @@ class FileSystemImpl implements FileSystem {
     final newDirDescriptor = FileDescriptor(
       id: descriptor.id,
       type: FileType.directory,
-      refs: 1,
+      refs: 0,
       fileSize: 0,
       blockMapAddress: 0,
     );
 
     _addLinkToDirectory(dirDescriptor, dirName, newDirDescriptor);
-    _updateDescriptor(newDirDescriptor);
 
     _addLinkToDirectory(newDirDescriptor, ".", newDirDescriptor);
     _addLinkToDirectory(newDirDescriptor, "..", dirDescriptor);
@@ -911,5 +913,22 @@ class FileSystemImpl implements FileSystem {
     } on InvalidPath {
       return false;
     }
+  }
+
+  @override
+  void removeDirectory(String path) {
+    final dir = lookUp(path);
+    if (dir.type != FileType.directory) {
+      throw DirectoryNotFound();
+    }
+
+    print("Refs: ${dir.refs}");
+    if (dir.refs > 2) {
+      throw Exception("Directory is not empty");
+    }
+
+    _unlink(path + "/.");
+    _unlink(path + "/..");
+    _unlink(path);
   }
 }
