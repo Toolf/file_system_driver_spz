@@ -126,6 +126,7 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
+    print(_getAbsolutePath(name));
     fs!.truncate(_getAbsolutePath(name), size);
   }
 
@@ -173,6 +174,8 @@ void main(List<String> arguments) async {
         }
       } else if (path == ".") {
         return;
+      } else if (newCwd == "/") {
+        cwd = "/";
       } else {
         cwd = newCwd + "/";
       }

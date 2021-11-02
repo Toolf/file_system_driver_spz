@@ -730,10 +730,17 @@ class FileSystemImpl implements FileSystem {
         int blockMapNumber =
             i ~/ (device.blockSize ~/ 16 * (device.blockSize ~/ 2 - 1));
         Block blockMap = _getBlock(d.blockMapAddress);
+
+        List<int> blockMapAddresses = [d.blockMapAddress];
+        List<Block> blockMaps = [blockMap];
+
         while (blockMapNumber != 0) {
           final address = _getNextBlockMapAddress(blockMap);
           blockMap = _getBlock(address);
           blockMapNumber--;
+
+          blockMapAddresses.add(address);
+          blockMaps.add(blockMap);
         }
 
         int blockNumber =
@@ -749,9 +756,29 @@ class FileSystemImpl implements FileSystem {
             block.data[k * 16] = 0; // set invalid
             _writeBlock(blockAddress, block);
 
+            // free unused blocks
+            bool needToFreeBlock =
+                !_readDentryFromBlock(blockAddress).any((d) => d.valid);
+            if (needToFreeBlock) {
+              _setBlockUnused(blockAddress);
+              if (blockMaps.length > 1) {
+                _setBlockUnused(blockMapAddresses.last);
+                blockMaps.removeLast();
+                blockMapAddresses.removeLast();
+                blockMaps.last.data[device.blockSize - 2] = 0;
+                blockMaps.last.data[device.blockSize - 1] = 0;
+                _writeBlock(blockMapAddresses.last, blockMaps.last);
+              } else {
+                blockMaps.last.data[blockNumber * 2] = 0;
+                blockMaps.last.data[blockNumber * 2 + 1] = 0;
+                _writeBlock(blockMapAddresses.last, blockMaps.last);
+              }
+            }
+
             final fileDescriptorId =
                 (block.data[k * 16 + 1] << 8) + block.data[k * 16 + 2];
             final file = _getFileDescriptor(fileDescriptorId);
+
             file.refs--;
             if (file.refs == 0 && !openedFiles.values.contains(file.id)) {
               _freeFileData(file);
@@ -769,6 +796,12 @@ class FileSystemImpl implements FileSystem {
   void _freeFileData(FileDescriptor file) {
     print("Free file ${file.id}");
     int blockMapAddress = file.blockMapAddress;
+
+    if (file.type == FileType.symlink) {
+      _setBlockUnused(blockMapAddress);
+      return;
+    }
+
     while (blockMapAddress != 0) {
       Block blockMap = _getBlock(blockMapAddress);
       for (int blockIndex = 0;
@@ -777,10 +810,13 @@ class FileSystemImpl implements FileSystem {
         final address = (blockMap.data[blockIndex * 2] << 8) +
             blockMap.data[blockIndex * 2 + 1];
         if (address == 0) {
+          _setBlockUnused(blockMapAddress);
           return;
+        } else if (address < device.blockCount) {
+          _setBlockUnused(address);
         }
-        _setBlockUnused(address);
       }
+      _setBlockUnused(blockMapAddress);
       blockMapAddress = _getNextBlockMapAddress(blockMap);
     }
   }
@@ -965,8 +1001,8 @@ class FileSystemImpl implements FileSystem {
       throw DirectoryNotFound();
     }
 
-    print("Refs: ${dir.refs}");
-    if (dir.refs > 2) {
+    final entries = readDirectory(dir);
+    if (entries.length > 2) {
       throw Exception("Directory is not empty");
     }
 
