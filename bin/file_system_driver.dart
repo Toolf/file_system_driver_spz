@@ -11,12 +11,8 @@ void main(List<String> arguments) async {
   FileSystem? fs;
   String cwd = "/";
 
-  String _simplifyPath(String path) {
-    return path.replaceAll("../", "").replaceAll("./", "");
-  }
-
   String _getAbsolutePath(String path) {
-    return path[0] == "/" ? path : _simplifyPath(cwd + path);
+    return path[0] == "/" ? path : cwd + path;
   }
 
   void mkfs(int n) async {

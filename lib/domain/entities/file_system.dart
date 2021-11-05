@@ -395,7 +395,7 @@ class FileSystemImpl implements FileSystem {
   }
 
   @override
-  FileDescriptor lookUp(String path) {
+  FileDescriptor lookUp(String path, [bool resolveSymlink = true]) {
     FileDescriptor directory = root;
     if (path == "/") {
       return directory;
@@ -419,6 +419,11 @@ class FileSystemImpl implements FileSystem {
           i++;
           final nextDirectory = getDescriptor(d.fileDescriptorId);
           if (nextDirectory.type == FileType.symlink) {
+            // остання компонента шляху
+            if (i == dirs.length && !resolveSymlink) {
+              return nextDirectory;
+            }
+
             symlinkCount++;
 
             if (symlinkCount > MAX_SYMLINK_COUNT) {
@@ -704,7 +709,7 @@ class FileSystemImpl implements FileSystem {
 
   @override
   void link(String name1, String name2) {
-    final file = lookUp(name1);
+    final file = lookUp(name1, false);
     if (file.type == FileType.directory) {
       throw Exception("Can't create link to directory");
     }
@@ -716,7 +721,7 @@ class FileSystemImpl implements FileSystem {
   @override
   void unlink(String path) {
     // can't unlink directory
-    final file = lookUp(path);
+    final file = lookUp(path, false);
     if (file.type == FileType.directory) return;
     return _unlink(path);
   }
@@ -999,6 +1004,10 @@ class FileSystemImpl implements FileSystem {
     final dir = lookUp(path);
     if (dir.type != FileType.directory) {
       throw DirectoryNotFound();
+    }
+    final fileName = _getFilenameByPath(path);
+    if (fileName == "." || fileName == "..") {
+      throw Exception("Can't remove '.' or '..' directory");
     }
 
     final entries = readDirectory(dir);
