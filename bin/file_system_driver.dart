@@ -3,17 +3,14 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:args/args.dart';
+import 'package:file_system_driver/domain/entities/dentry.dart';
 import 'package:file_system_driver/domain/entities/file_descriptor.dart';
 import 'package:file_system_driver/domain/entities/file_system.dart';
 
 void main(List<String> arguments) async {
   String filePath = "information_device.txt";
   FileSystem? fs;
-  String cwd = "/";
-
-  String _getAbsolutePath(String path) {
-    return path[0] == "/" ? path : cwd + path;
-  }
+  int cwdDescriptorId = 0;
 
   void mkfs(int n) async {
     FileSystemImpl.mkfs(filePath, n);
@@ -49,7 +46,7 @@ void main(List<String> arguments) async {
     if (fs == null) {
       throw Exception("Fs wasn't mounted");
     }
-    final dentries = fs!.readDirectory(fs!.lookUp(cwd));
+    final dentries = fs!.readDirectory(fs!.getDescriptor(cwdDescriptorId));
     print("Dir:");
     for (var d in dentries) {
       print(
@@ -64,14 +61,14 @@ void main(List<String> arguments) async {
     if (fs == null) {
       throw Exception("Fs wasn't mounted");
     }
-    fs!.createFile(_getAbsolutePath(name));
+    fs!.createFile(name, cwdDescriptorId);
   }
 
   int open(String name) {
     if (fs == null) {
       throw Exception("Fs wasn't mounted");
     }
-    final fd = fs!.open(_getAbsolutePath(name));
+    final fd = fs!.open(name, cwdDescriptorId);
     print("Fd: $fd");
     return fd;
   }
@@ -106,7 +103,7 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
-    fs!.link(_getAbsolutePath(name1), _getAbsolutePath(name2));
+    fs!.link(name1, name2, cwdDescriptorId);
   }
 
   void unlink(String name) {
@@ -114,7 +111,7 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
-    fs!.unlink(_getAbsolutePath(name));
+    fs!.unlink(name, cwdDescriptorId);
   }
 
   void truncate(String name, int size) {
@@ -122,8 +119,7 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
-    print(_getAbsolutePath(name));
-    fs!.truncate(_getAbsolutePath(name), size);
+    fs!.truncate(name, size, cwdDescriptorId);
   }
 
   void getUsedBlockAmount() {
@@ -139,7 +135,7 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
-    fs!.createDirectory(_getAbsolutePath(path));
+    fs!.createDirectory(path, cwdDescriptorId);
   }
 
   void rmdir(String path) {
@@ -147,11 +143,30 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
-    fs!.removeDirectory(_getAbsolutePath(path));
+    fs!.removeDirectory(path, cwdDescriptorId);
   }
 
-  void pwd() {
+  String pwd() {
+    if (cwdDescriptorId == 0) {
+      return '/';
+    }
+    FileDescriptor descriptor;
+    String path = "";
+    String cwd = "";
+    List<Dentry> dentries;
+    int descriptorId = cwdDescriptorId;
+    do {
+      path = path + "../";
+      descriptor = fs!.lookUp(path, descriptorId);
+      dentries = fs!.readDirectory(descriptor);
+      final name =
+          dentries.firstWhere((d) => d.fileDescriptorId == descriptorId).name;
+      cwd = "/" + name + cwd;
+    } while (dentries.firstWhere((d) => d.name == ".").fileDescriptorId ==
+        descriptorId);
+
     print(cwd);
+    return cwd;
   }
 
   void cd(String path) {
@@ -159,25 +174,7 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
-    String newCwd = _getAbsolutePath(path);
-
-    if (fs!.isDirExists(newCwd)) {
-      if (path == "..") {
-        cwd = cwd.substring(
-            0, cwd.substring(0, cwd.length - 1).lastIndexOf("/") + 1);
-        if (cwd.isEmpty) {
-          cwd = "/";
-        }
-      } else if (path == ".") {
-        return;
-      } else if (newCwd == "/") {
-        cwd = "/";
-      } else {
-        cwd = newCwd + "/";
-      }
-    } else {
-      print("Directory not found");
-    }
+    cwdDescriptorId = fs!.lookUp(path, cwdDescriptorId).id;
   }
 
   void symlink(String str, String path) {
@@ -185,7 +182,7 @@ void main(List<String> arguments) async {
       throw Exception("Fs wasn't mounted");
     }
 
-    fs!.createSymlink(_getAbsolutePath(path), str);
+    fs!.createSymlink(path, str, cwdDescriptorId);
   }
 
   var parser = ArgParser()
@@ -285,7 +282,11 @@ void main(List<String> arguments) async {
 
   while (true) {
     try {
-      stdout.write("$cwd >> ");
+      if (fs != null) {
+        stdout.write("${pwd()} >> ");
+      } else {
+        stdout.write("> ");
+      }
       var args = stdin
           .readLineSync(
             encoding: Encoding.getByName('utf-8')!,
@@ -357,7 +358,7 @@ void main(List<String> arguments) async {
           mkdir(results["path"]);
           break;
         case "cd":
-          cd(results["path"]);
+          cd(results["path"].toString());
           break;
         case "rmdir":
           rmdir(results["path"]);
