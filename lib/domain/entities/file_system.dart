@@ -483,7 +483,7 @@ class FileSystemImpl implements FileSystem {
         return lookUp(
           p,
           cwd,
-          false, // ?? тут не зрозуміло чи true має бути чи false
+          true,
           symlinkMaxCount - 1,
         );
       }
